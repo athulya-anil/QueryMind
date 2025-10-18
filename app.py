@@ -96,15 +96,14 @@ def generate_sql(question: str, schema: str, model="llama-3.3-70b-versatile") ->
 
 def refine_sql_with_feedback(question, sql_query, df_feedback, schema, model="llama-3.3-70b-versatile"):
     """Detect negatives → auto-fix with ABS()"""
+    import re
     has_negative = any(
         df_feedback[col].dtype.kind in "if" and (df_feedback[col] < 0).any()
         for col in df_feedback.columns
     )
     if has_negative:
-        fixed_sql = sql_query.replace("SUM(", "SUM(ABS(")
-        if "AS" not in fixed_sql:
-            fixed_sql = fixed_sql.replace(")", ")) AS total_value", 1)
-        feedback = "Detected negative totals → added ABS() for correction."
+        fixed_sql = re.sub(r"SUM\(([^)]+)\)", r"SUM(ABS(\1))", sql_query, flags=re.IGNORECASE)
+        feedback = "Detected negative totals → added ABS() around SUM() for correction."
         return feedback, fixed_sql
     return "No numeric issues detected.", sql_query
 
