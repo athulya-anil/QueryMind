@@ -106,8 +106,8 @@ def generate_sql(question: str, schema: str, model="llama-3.3-70b-versatile") ->
 
 def refine_sql_with_feedback(question, sql_query, df_feedback, schema, model="llama-3.3-70b-versatile"):
     """Stage 1: Detect negatives → auto-fix with ABS();
-       Stage 2: Detect semantic mismatches via LLM."""
-    
+       Stage 2: Detect semantic mismatches via LLM with safe JSON fallback."""
+
     # --- Stage 1️⃣: Numeric reflection ---
     has_negative = any(
         df_feedback[col].dtype.kind in "if" and (df_feedback[col] < 0).any()
@@ -119,7 +119,7 @@ def refine_sql_with_feedback(question, sql_query, df_feedback, schema, model="ll
         feedback = "Detected negative totals from refunds → added ABS() around SUM() for correction."
         return feedback, fixed_sql
 
-    # --- Stage 2️⃣: Semantic reflection ---
+    # --- Stage 2️⃣: Semantic reflection (LLM reasoning) ---
     reflection_prompt = f"""
     You are a SQL reasoning agent. Analyze whether the SQL query logically answers the user's question
     given the table schema.
@@ -141,19 +141,34 @@ def refine_sql_with_feedback(question, sql_query, df_feedback, schema, model="ll
       "refined_sql": "{sql_query}"
     }}
     """
+
     try:
         resp = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": reflection_prompt}],
             temperature=0,
         )
-        result = json.loads(resp.choices[0].message.content)
-        feedback = result.get("feedback", "Semantic reflection complete.")
-        refined_sql = result.get("refined_sql", sql_query)
+
+        raw_output = resp.choices[0].message.content.strip()
+
+        # --- Try parsing JSON safely ---
+        try:
+            result = json.loads(raw_output)
+            feedback = result.get("feedback", "Semantic reflection complete.")
+            refined_sql = result.get("refined_sql", sql_query)
+        except json.JSONDecodeError:
+            # fallback for text-only model responses
+            if "not present" in raw_output.lower() or "missing" in raw_output.lower():
+                feedback = "Question references missing field(s) not present in schema."
+                refined_sql = "NULL"
+            else:
+                feedback = f"Model returned non-JSON output: {raw_output[:100]}..."
+                refined_sql = sql_query
+
         return feedback, refined_sql
+
     except Exception as e:
         return f"Semantic reflection failed: {e}", sql_query
-
 
 # ---------------------- APP LOGIC ----------------------
 st.subheader("🗨️ Ask a question about Apple Store data")
