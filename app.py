@@ -1,4 +1,3 @@
-# app.py
 import re
 import streamlit as st
 import sqlite3, pandas as pd, json, random, datetime
@@ -8,7 +7,7 @@ from groq import Groq
 # ---------------------- SETUP ----------------------
 st.set_page_config(page_title="QueryMind", page_icon="🧠", layout="wide")
 st.title("🧠 QueryMind: Self-Reflecting AI SQL Agent")
-st.caption("Built by Athulya Anil — An AI that writes and self-corrects SQL queries using reflection 💡")
+st.caption("AI agent that writes and self-corrects SQL queries using reflection 🪞")
 
 # Initialize Groq client (use st.secrets for deployment)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -60,6 +59,7 @@ def create_apple_store_db(db_path="apple_store.db"):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (pid, name, category, region, qty_sold, unit_price, revenue, note, ts))
 
+    # Force a refund for testing reflection
     cur.execute("""
         INSERT INTO transactions (product_id, product_name, category, region, qty_sold, unit_price, revenue, notes, ts)
         VALUES (201, 'AirPods Pro', 'Earbuds', 'North', -50, 250, -12500, 'refund', CURRENT_TIMESTAMP)
@@ -67,6 +67,7 @@ def create_apple_store_db(db_path="apple_store.db"):
     conn.commit()
     conn.close()
     return "✅ Apple Store DB ready (with negative refunds)."
+
 
 msg = create_apple_store_db()
 st.sidebar.success(msg)
@@ -78,8 +79,10 @@ def execute_sql(sql, db_path="apple_store.db"):
     conn.close()
     return df
 
+
 def clean_sql(sql):
     return sql.replace("```sql", "").replace("```", "").strip()
+
 
 # ---------------------- AGENT LOGIC ----------------------
 def generate_sql(question: str, schema: str, model="llama-3.3-70b-versatile") -> str:
@@ -100,17 +103,57 @@ def generate_sql(question: str, schema: str, model="llama-3.3-70b-versatile") ->
     )
     return clean_sql(response.choices[0].message.content.strip())
 
+
 def refine_sql_with_feedback(question, sql_query, df_feedback, schema, model="llama-3.3-70b-versatile"):
-    """Detect negatives → auto-fix with ABS()"""
+    """Stage 1: Detect negatives → auto-fix with ABS();
+       Stage 2: Detect semantic mismatches via LLM."""
+    
+    # --- Stage 1️⃣: Numeric reflection ---
     has_negative = any(
         df_feedback[col].dtype.kind in "if" and (df_feedback[col] < 0).any()
         for col in df_feedback.columns
     )
+
     if has_negative:
         fixed_sql = re.sub(r"SUM\(([^)]+)\)", r"SUM(ABS(\1))", sql_query, flags=re.IGNORECASE)
-        feedback = "Detected negative totals → added ABS() around SUM() for correction."
+        feedback = "Detected negative totals from refunds → added ABS() around SUM() for correction."
         return feedback, fixed_sql
-    return "No numeric issues detected.", sql_query
+
+    # --- Stage 2️⃣: Semantic reflection ---
+    reflection_prompt = f"""
+    You are a SQL reasoning agent. Analyze whether the SQL query logically answers the user's question
+    given the table schema.
+
+    Question: {question}
+    SQL: {sql_query}
+    Schema:
+    {schema}
+
+    If the question refers to something not present in the schema (e.g. colour, size, rating),
+    return JSON:
+    {{
+      "feedback": "Question references missing field(s) not present in schema.",
+      "refined_sql": "NULL"
+    }}
+    Otherwise, if the SQL looks fine, return:
+    {{
+      "feedback": "No semantic issues detected.",
+      "refined_sql": "{sql_query}"
+    }}
+    """
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": reflection_prompt}],
+            temperature=0,
+        )
+        result = json.loads(resp.choices[0].message.content)
+        feedback = result.get("feedback", "Semantic reflection complete.")
+        refined_sql = result.get("refined_sql", sql_query)
+        return feedback, refined_sql
+    except Exception as e:
+        return f"Semantic reflection failed: {e}", sql_query
+
 
 # ---------------------- APP LOGIC ----------------------
 st.subheader("🗨️ Ask a question about Apple Store data")
@@ -142,7 +185,10 @@ if user_question:
     # Reflection & Correction
     if not df_v1.empty:
         feedback, sql_v2 = refine_sql_with_feedback(user_question, sql_v1, df_v1, schema)
-        st.info(f"🪞 Reflection Feedback: {feedback}")
+        if "missing field" in feedback.lower():
+            st.warning(f"🧠 Semantic Feedback: {feedback}")
+        else:
+            st.info(f"🪞 Reflection Feedback: {feedback}")
         st.code(sql_v2, language="sql")
 
         try:
@@ -151,4 +197,3 @@ if user_question:
             st.dataframe(df_v2)
         except Exception as e:
             st.error(f"Execution Error after Reflection: {e}")
-
