@@ -1,4 +1,4 @@
-# 🧠 QueryMind: Self-Reflecting AI SQL Agent  
+# 🐣 QueryMind: Self-Reflecting AI SQL Agent  
 
 > **Live App:** https://querymind-ai.streamlit.app/
 
