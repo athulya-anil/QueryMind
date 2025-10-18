@@ -1,7 +1,9 @@
 # app.py
+import re
 import streamlit as st
 import sqlite3, pandas as pd, json, random, datetime
 from groq import Groq
+
 
 # ---------------------- SETUP ----------------------
 st.set_page_config(page_title="QueryMind", page_icon="🧠", layout="wide")
@@ -58,6 +60,10 @@ def create_apple_store_db(db_path="apple_store.db"):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (pid, name, category, region, qty_sold, unit_price, revenue, note, ts))
 
+    cur.execute("""
+        INSERT INTO transactions (product_id, product_name, category, region, qty_sold, unit_price, revenue, notes, ts)
+        VALUES (201, 'AirPods Pro', 'Earbuds', 'North', -50, 250, -12500, 'refund', CURRENT_TIMESTAMP)
+    """)
     conn.commit()
     conn.close()
     return "✅ Apple Store DB ready (with negative refunds)."
@@ -96,7 +102,6 @@ def generate_sql(question: str, schema: str, model="llama-3.3-70b-versatile") ->
 
 def refine_sql_with_feedback(question, sql_query, df_feedback, schema, model="llama-3.3-70b-versatile"):
     """Detect negatives → auto-fix with ABS()"""
-    import re
     has_negative = any(
         df_feedback[col].dtype.kind in "if" and (df_feedback[col] < 0).any()
         for col in df_feedback.columns
