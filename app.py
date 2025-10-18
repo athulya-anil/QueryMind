@@ -6,7 +6,7 @@ from groq import Groq
 
 # ---------------------- SETUP ----------------------
 st.set_page_config(page_title="QueryMind", page_icon="🐣", layout="wide")
-st.title("QueryMind: Self-Reflecting AI SQL Agent")
+st.title("🐣 QueryMind: Self-Reflecting AI SQL Agent")
 st.caption("AI agent that writes and self-corrects SQL queries using reflection")
 
 # Initialize Groq client (use st.secrets for deployment)
