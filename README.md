@@ -2,8 +2,7 @@
 
 > **Live App:** https://querymind-ai.streamlit.app/
 
-QueryMind is an **AI-powered SQL reasoning app** built by **Athulya Anil**.  
-It generates, executes, and *self-corrects* SQL queries using **reflective reasoning** —  
+QueryMind is an **AI-powered SQL reasoning app**. It generates, executes, and *self-corrects* SQL queries using **reflective reasoning** —  
 catching logic or numeric errors (like negative refunds) and automatically rewriting queries to fix them.
 
 You can ask questions like:
