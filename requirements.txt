@@ -1,5 +1,11 @@
-streamlit
-groq
-pandas
-python-dotenv
+# --- Core App Dependencies ---
+streamlit>=1.38.0
+groq>=0.5.0
+pandas>=2.2.2
+python-dotenv>=1.0.1
 
+# --- Database ---
+sqlite-utils>=3.36.0
+
+# --- Optional (recommended for local dev) ---
+watchdog>=4.0.1  # enables hot-reload in Streamlit
