@@ -44,7 +44,9 @@ client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 reflector = ReflectionEngine(client)
 
 # ---------------------- UTILITIES ----------------------
-def execute_sql(sql, db_path="user_data.db"):
+@st.cache_data(ttl=600)  # Cache for 10 minutes
+def execute_sql(sql: str, db_path: str = "user_data.db"):
+    """Execute SQL query with caching"""
     conn = sqlite3.connect(db_path)
     df = pd.read_sql_query(sql, conn)
     conn.close()
@@ -54,7 +56,9 @@ def clean_sql(sql):
     return sql.replace("```sql", "").replace("```", "").strip()
 
 # ---------------------- AGENT LOGIC ----------------------
-def generate_sql(question: str, schema: str, table_name: str, model="llama-3.3-70b-versatile") -> str:
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def generate_sql(question: str, schema: str, table_name: str, model: str = "llama-3.3-70b-versatile") -> str:
+    """Generate SQL from natural language with caching"""
     prompt = f"""
     You are a SQL assistant. Given the schema and user question, write a valid SQLite query.
     Use table name '{table_name}'. Respond with SQL only. If the question contains a name or text, use LIKE '%text%' for partial matching instead of exact '='. Always ensure column names match those in the schema exactly.
@@ -148,6 +152,20 @@ div[data-testid="stButton"] > button:hover {
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* Remove "Press Enter to apply" text */
+div[data-testid="InputInstructions"] {
+    display: none !important;
+}
+
+/* Alternative: if the above doesn't work, try this */
+.stTextInput > div > div > input + div {
+    display: none !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 if not submit:
     st.stop()
 
@@ -166,15 +184,15 @@ if user_question:
         st.error("Could not read your uploaded CSV file. Please check its format and try again.")
         st.stop()
 
-    # Generate SQL
+    # Generate SQL (now cached)
     with st.spinner("Generating SQL..."):
         sql_v1 = generate_sql(user_question, schema, table_name)
         sql_v1 = sql_v1.replace("table", table_name)
     st.code(sql_v1, language="sql")
 
-    # Execute SQL V1
+    # Execute SQL V1 (now cached)
     try:
-        df_v1 = execute_sql(sql_v1)
+        df_v1 = execute_sql(sql_v1, db_path="user_data.db")
         st.write("**Initial Output (Before Reflection)**")
         st.dataframe(df_v1, hide_index=True)
     except Exception as e:
@@ -218,7 +236,7 @@ if user_question:
             st.stop()
         else:
             try:
-                df_v2 = execute_sql(refined_sql)
+                df_v2 = execute_sql(refined_sql, db_path="user_data.db")
                 st.success("Corrected Output (After Reflection)")
                 st.dataframe(df_v2, hide_index=True)
             except Exception as e:
@@ -231,3 +249,14 @@ if user_question:
             <b>QueryMind:</b> {explanation}
             </div>
             """, unsafe_allow_html=True)
+
+# ---------------------- CACHE STATS (DEV MODE) ----------------------
+with st.sidebar.expander("Cache Statistics"):
+    cache_stats = reflector.get_cache_stats()
+    st.write("**Reflection Engine Cache:**")
+    st.json(cache_stats)
+    if st.button("Clear All Caches", use_container_width=True, type="primary"):
+        reflector.clear_cache()
+        st.cache_data.clear()
+        st.success("All caches cleared!")
+        st.rerun()

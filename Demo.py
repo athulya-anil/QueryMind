@@ -100,7 +100,9 @@ msg = create_apple_store_db()
 st.sidebar.success(msg)
 
 # ---------------------- UTILITIES ----------------------
-def execute_sql(sql, db_path="apple_store.db"):
+@st.cache_data(ttl=600)  # Cache for 10 minutes
+def execute_sql(sql: str, db_path: str = "apple_store.db"):
+    """Execute SQL query with caching"""
     conn = sqlite3.connect(db_path)
     df = pd.read_sql_query(sql, conn)
     conn.close()
@@ -112,7 +114,9 @@ def clean_sql(sql):
 
 
 # ---------------------- AGENT LOGIC ----------------------
-def generate_sql(question: str, schema: str, model="llama-3.3-70b-versatile") -> str:
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def generate_sql(question: str, schema: str, model: str = "llama-3.3-70b-versatile") -> str:
+    """Generate SQL from natural language with caching"""
     prompt = f"""
     You are a SQL assistant. Given the schema and user question, write a valid SQLite query.
     Use table name 'transactions'. Respond with SQL only. If the question contains a name or text, use LIKE '%text%' for partial matching instead of exact '='. Always ensure column names match those in the schema exactly.
@@ -170,6 +174,20 @@ div[data-testid="stButton"] > button:hover {
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* Remove "Press Enter to apply" text */
+div[data-testid="InputInstructions"] {
+    display: none !important;
+}
+
+/* Alternative: if the above doesn't work, try this */
+.stTextInput > div > div > input + div {
+    display: none !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 if not submit:
     st.stop()
 
@@ -181,13 +199,13 @@ if user_question:
     schema = "\n".join([f"{row[1]} ({row[2]})" for row in cur.fetchall()])
     conn.close()
 
-    # Generate SQL
+    # Generate SQL (now cached)
     with st.spinner("Generating SQL..."):
         sql_v1 = generate_sql(user_question, schema)
         sql_v1 = sql_v1.replace("table", "transactions")
     st.code(sql_v1, language="sql")
 
-    # Execute SQL V1
+    # Execute SQL V1 (now cached)
     try:
         df_v1 = execute_sql(sql_v1)
         st.write("**Initial Output (Before Reflection)**")
@@ -246,4 +264,14 @@ if user_question:
             <b>QueryMind:</b> {explanation}
             </div>
             """, unsafe_allow_html=True)
-            
+
+# ---------------------- CACHE STATS (DEV MODE) ----------------------
+with st.sidebar.expander("Cache Statistics"):
+    cache_stats = reflector.get_cache_stats()
+    st.write("**Reflection Engine Cache:**")
+    st.json(cache_stats)
+    if st.button("Clear All Caches", use_container_width=True, type="primary"):
+        reflector.clear_cache()
+        st.cache_data.clear()
+        st.success("All caches cleared!")
+        st.rerun()

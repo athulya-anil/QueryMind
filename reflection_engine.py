@@ -1,18 +1,46 @@
 import re
 import json
 import pandas as pd
+import hashlib
+import pickle
 
 
 class ReflectionEngine:
     """
     ReflectionEngine: analyzes SQL output for anomalies and uses an LLM to propose corrections.
-    Restores semantic field-existence detection from your original refine_sql_with_feedback(),
-    but now the LLM explains missing fields naturally when detected.
+    Now includes intelligent caching to reduce LLM calls and improve performance.
     """
 
     def __init__(self, client, model="llama-3.3-70b-versatile"):
         self.client = client
         self.model = model
+        self._reflection_cache = {}  # Cache for full reflection results
+        self._explanation_cache = {}  # Cache for explanations
+        self._semantic_cache = {}  # Cache for semantic validation
+
+    def _get_df_hash(self, df: pd.DataFrame) -> str:
+        """Generate stable hash for DataFrame content"""
+        try:
+            return hashlib.md5(pickle.dumps(df.values.tobytes())).hexdigest()[:16]
+        except:
+            # Fallback for non-numpy types
+            return hashlib.md5(str(df.to_dict()).encode()).hexdigest()[:16]
+
+    def _get_reflection_cache_key(self, question: str, sql_query: str, df: pd.DataFrame, schema: str) -> str:
+        """Generate unique cache key for reflection"""
+        df_hash = self._get_df_hash(df)
+        combined = f"{question}|{sql_query}|{df_hash}|{schema}"
+        return hashlib.md5(combined.encode()).hexdigest()
+
+    def _get_semantic_cache_key(self, question: str, sql_query: str, schema: str) -> str:
+        """Generate cache key for semantic validation"""
+        combined = f"{question}|{sql_query}|{schema}"
+        return hashlib.md5(combined.encode()).hexdigest()
+
+    def _get_explanation_cache_key(self, issues: list, feedback: str, old_sql: str, new_sql: str) -> str:
+        """Generate cache key for explanations"""
+        combined = f"{str(issues)}|{feedback}|{old_sql}|{new_sql}"
+        return hashlib.md5(combined.encode()).hexdigest()
 
     # ---------- 1 Data Anomaly Detection ----------
     def detect_output_anomalies(self, df: pd.DataFrame):
@@ -39,7 +67,7 @@ class ReflectionEngine:
             issues.append("Some regions missing — possible filtering issue or incomplete data coverage.")
 
         if not issues:
-            issues.append("✅ No data-level anomalies detected.")
+            issues.append("No data-level anomalies detected.")
         return issues
 
     # ---------- 2 Schema Presence Pre-Check (backup only) ----------
@@ -57,8 +85,13 @@ class ReflectionEngine:
                     missing_terms.append(word)
         return missing_terms
 
-    # ---------- 3 Semantic Reflection (LLM Reasoning) ----------
+    # ---------- 3 Semantic Reflection (LLM Reasoning) with Cache ----------
     def semantic_reflection(self, question, sql_query, schema, sample_output):
+        # Check cache first
+        cache_key = self._get_semantic_cache_key(question, sql_query, schema)
+        if cache_key in self._semantic_cache:
+            return self._semantic_cache[cache_key]
+
         reflection_prompt = f"""
         You are QueryMind, a SQL reasoning and reflection assistant.
 
@@ -112,10 +145,17 @@ class ReflectionEngine:
                 "refined_sql": sql_query,
             }
 
+        # Cache the result
+        self._semantic_cache[cache_key] = result
         return result
 
-    # ---------- 4 Generate Natural Explanation ----------
+    # ---------- 4 Generate Natural Explanation with Cache ----------
     def generate_reflection_explanation(self, issues, feedback, old_sql, new_sql):
+        # Check cache first
+        cache_key = self._get_explanation_cache_key(issues, feedback, old_sql, new_sql)
+        if cache_key in self._explanation_cache:
+            return self._explanation_cache[cache_key]
+
         explanation_prompt = f"""
         You are QueryMind, an AI SQL reflection assistant.
 
@@ -136,12 +176,19 @@ class ReflectionEngine:
             )
             explanation = resp.choices[0].message.content.strip()
         except Exception as e:
-            explanation = f"(⚠️ Explanation generation failed: {e})"
+            explanation = f"(Explanation generation failed: {e})"
 
+        # Cache the result
+        self._explanation_cache[cache_key] = explanation
         return explanation
 
-    # ---------- 5 Combined Reflection ----------
+    # ---------- 5 Combined Reflection with Cache ----------
     def reflect(self, question, sql_query, df, schema):
+        # Check full reflection cache first
+        cache_key = self._get_reflection_cache_key(question, sql_query, df, schema)
+        if cache_key in self._reflection_cache:
+            return self._reflection_cache[cache_key]
+
         issues = self.detect_output_anomalies(df)
         sample_output = df.head(3).to_dict(orient="records")
 
@@ -155,12 +202,15 @@ class ReflectionEngine:
                 old_sql=sql_query,
                 new_sql=fixed_sql,
             )
-            return {
+            result = {
                 "issues": issues,
                 "feedback": feedback,
                 "refined_sql": fixed_sql,
                 "explanation": explanation,
             }
+            # Cache before returning
+            self._reflection_cache[cache_key] = result
+            return result
 
         # Stage 2: Full Semantic Reasoning via LLM
         llm_result = self.semantic_reflection(question, sql_query, schema, sample_output)
@@ -185,12 +235,33 @@ class ReflectionEngine:
         # Simplify explanation if SQL was invalid
         if refined_sql.strip().upper() == "NULL":
             reflection_explanation = (
-                "There’s no matching column for your question in the database schema. "
+                "There's no matching column for your question in the database schema. "
                 "Try rephrasing your question using available fields such as 'product_name', 'category', or 'region'."
             )
-        return {
+
+        result = {
             "issues": issues,
             "feedback": feedback,
             "refined_sql": refined_sql,
             "explanation": reflection_explanation,
+        }
+
+        # Cache the result
+        self._reflection_cache[cache_key] = result
+        return result
+
+    # ---------- 6 Cache Management ----------
+    def clear_cache(self):
+        """Clear all caches"""
+        self._reflection_cache.clear()
+        self._explanation_cache.clear()
+        self._semantic_cache.clear()
+
+    def get_cache_stats(self):
+        """Get cache statistics"""
+        return {
+            "reflection_cache_size": len(self._reflection_cache),
+            "explanation_cache_size": len(self._explanation_cache),
+            "semantic_cache_size": len(self._semantic_cache),
+            "total_cached_items": len(self._reflection_cache) + len(self._explanation_cache) + len(self._semantic_cache)
         }
