@@ -87,7 +87,7 @@ def load_csv(file):
 
 # ---------------------- USER UPLOAD ----------------------
 st.sidebar.header("Upload Your Dataset")
-st.sidebar.caption("Your data stays local and is never uploaded to the cloud.")
+st.sidebar.caption("Your data is processed securely within this session and is never shared or stored permanently.")
 
 uploaded_file = st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
 if not uploaded_file:
