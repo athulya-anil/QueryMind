@@ -1,8 +1,6 @@
 # 🐣 QueryMind: Self-Reflecting AI SQL Agent
 
-<p align="center">
-  <img src="https://github.com/athulya-anil/QueryMind/assets/QueryMind.gif" alt="QueryMind Demo" width="800">
-</p>
+<img src="assets/QueryMind.gif" width="600">
 
 **Live Demo:** https://querymind-ai.streamlit.app/
 
