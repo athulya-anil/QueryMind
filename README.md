@@ -1,5 +1,9 @@
 # 🐣 QueryMind: Self-Reflecting AI SQL Agent
 
+<p align="center">
+  <img src="https://github.com/athulya-anil/QueryMind/assets/QueryMind.gif" alt="QueryMind Demo" width="800">
+</p>
+
 **Live Demo:** https://querymind-ai.streamlit.app/
 
 An intelligent SQL agent that **writes, executes, and self-corrects** database queries in real-time. Built for data analysts, business users, and anyone who needs to query databases without writing SQL.
