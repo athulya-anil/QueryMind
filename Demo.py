@@ -86,7 +86,14 @@ def create_apple_store_db(db_path="apple_store.db"):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (pid, name, category, region, qty_sold, unit_price, revenue, note, ts))
 
-    # Force a refund for testing reflection
+    # Force a large refund for MacBook to ensure negative total revenue
+    # This demonstrates the reflection engine's ability to detect and fix negative revenue issues
+    cur.execute("""
+        INSERT INTO transactions (product_id, product_name, category, region, qty_sold, unit_price, revenue, notes, ts)
+        VALUES (301, 'MacBook Air M3', 'Laptop', 'North', -100, 1300, -130000, 'refund', CURRENT_TIMESTAMP)
+    """)
+    
+    # Force another refund for testing reflection
     cur.execute("""
         INSERT INTO transactions (product_id, product_name, category, region, qty_sold, unit_price, revenue, notes, ts)
         VALUES (201, 'AirPods Pro', 'Earbuds', 'North', -50, 250, -12500, 'refund', CURRENT_TIMESTAMP)
@@ -98,6 +105,74 @@ def create_apple_store_db(db_path="apple_store.db"):
 
 msg = create_apple_store_db()
 st.sidebar.success(msg)
+
+# ---------------------- SIDEBAR SECTIONS ----------------------
+# About Data Reflection
+with st.sidebar.expander("About QueryMind"):
+    st.markdown("""
+    ### What is QueryMind?
+    
+    QueryMind uses **agentic AI reflection** to:
+    
+    1. **Analyze** your SQL query output
+    2. **Detect** anomalies (negatives, nulls, missing data)
+    3. **Suggest** corrections based on actual results
+    4. **Explain** what was fixed and why
+    
+    This mirrors how a data analyst would review and improve their own queries!
+    
+    ### How It Works:
+    - **Stage 1:** Generate SQL from your question
+    - **Stage 2:** Execute and analyze the output data
+    - **Stage 3:** LLM reflects on results
+    - **Stage 4:** Auto-correct and re-execute
+    
+    Inspired by Andrew Ng's **Agentic AI** course.
+    """)
+
+# Helper
+with st.sidebar.expander("Try These Questions"):
+    st.markdown("""
+    ### Sample Questions to Test:
+    
+    - Which product generated the highest total revenue?
+    - What's the total revenue by region?
+    - What's the best selling color?
+    - List the top 3 products by revenue.           
+
+    """)
+# Cache Statistics
+with st.sidebar.expander("Cache Statistics"):
+    cache_stats = reflector.get_cache_stats()
+    
+    st.markdown("### Reflection Engine Cache")
+    
+    # Visual metrics
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Total Items", cache_stats['total_cached_items'])
+    with col2:
+        cache_efficiency = "High" if cache_stats['total_cached_items'] > 5 else "Low"
+        st.metric("Efficiency", cache_efficiency)
+    
+    # Detailed breakdown
+    st.markdown("**Cache Breakdown:**")
+    st.json({
+        "Reflection Cache": cache_stats['reflection_cache_size'],
+        "Semantic Cache": cache_stats['semantic_cache_size'],
+        "Explanation Cache": cache_stats['explanation_cache_size']
+    })
+    
+    if st.button("Clear All Caches", use_container_width=True, type="primary"):
+        reflector.clear_cache()
+        st.cache_data.clear()
+        st.success("All caches cleared!")
+        st.rerun()
+
+# Developer Stats
+with st.sidebar.expander("Developer Stats"):
+    st.write("**Raw Cache Data:**")
+    st.json(reflector.get_cache_stats())
 
 # ---------------------- UTILITIES ----------------------
 @st.cache_data(ttl=600)  # Cache for 10 minutes
@@ -116,7 +191,7 @@ def clean_sql(sql):
 # ---------------------- AGENT LOGIC ----------------------
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def generate_sql(question: str, schema: str, model: str = "llama-3.3-70b-versatile") -> str:
-    """Generate SQL from natural language with caching"""
+    """Generate SQL from natural language with caching - using temperature=0 for deterministic output"""
     prompt = f"""
     You are a SQL assistant. Given the schema and user question, write a valid SQLite query.
     Use table name 'transactions'. Respond with SQL only. If the question contains a name or text, use LIKE '%text%' for partial matching instead of exact '='. Always ensure column names match those in the schema exactly.
@@ -126,13 +201,24 @@ def generate_sql(question: str, schema: str, model: str = "llama-3.3-70b-versati
 
     Question:
     {question}
+
+    Respond with the SQL query only, no explanations.
     """
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0,
+        temperature=0,  # Deterministic generation
     )
-    return clean_sql(response.choices[0].message.content.strip())
+    sql = clean_sql(response.choices[0].message.content.strip())
+    
+    # DEMO HACK: Force V1 to use plain SUM(revenue) for demo purposes
+    # This intentionally creates negative totals when refunds exist,
+    # demonstrating the reflection engine's auto-fix capability
+    if "revenue" in question.lower() or "total" in question.lower():
+        sql = re.sub(r"SUM\(ABS\(revenue\)\)", "SUM(revenue)", sql, flags=re.IGNORECASE)
+        sql = re.sub(r"ABS\(revenue\)", "revenue", sql, flags=re.IGNORECASE)
+    
+    return sql
 
 # ---------------------- USER INPUT ----------------------
 st.subheader("Ask any question about Apple Store data")
@@ -154,7 +240,7 @@ with col1:
 with col2:
     submit = st.button("Enter", use_container_width=True)
 
-# button style (keeps the same green tone but aligns cleaner)
+# button  
 st.markdown("""
 <style>
 div[data-testid="stButton"] > button {
@@ -188,6 +274,7 @@ div[data-testid="InputInstructions"] {
 </style>
 """, unsafe_allow_html=True)
 
+
 if not submit:
     st.stop()
 
@@ -199,79 +286,77 @@ if user_question:
     schema = "\n".join([f"{row[1]} ({row[2]})" for row in cur.fetchall()])
     conn.close()
 
-    # Generate SQL (now cached)
+    # Generate SQL 
     with st.spinner("Generating SQL..."):
         sql_v1 = generate_sql(user_question, schema)
         sql_v1 = sql_v1.replace("table", "transactions")
     st.code(sql_v1, language="sql")
 
-    # Execute SQL V1 (now cached)
+    # Execute SQL V1 and run reflection
     try:
         df_v1 = execute_sql(sql_v1)
         st.write("**Initial Output (Before Reflection)**")
         st.dataframe(df_v1, hide_index=True)
-    except Exception as e:
-        st.error(f"SQL Execution Error: {e}")
-        df_v1 = pd.DataFrame()
         
-    if not df_v1.empty:
+        # Run reflection regardless of whether df is empty or not
         with st.spinner("Reflecting and improving query..."):
             reflection_data = reflector.reflect(user_question, sql_v1, df_v1, schema)
+    except Exception as e:
+        st.error(f"SQL Execution Error: {e}")
+        st.stop()
+    
+    # Extract reflection results
+    issues = reflection_data.get("issues", [])
+    feedback = reflection_data.get("feedback", "")
+    refined_sql = reflection_data.get("refined_sql", sql_v1)
+    explanation = reflection_data.get("explanation", "")
 
-        issues = reflection_data.get("issues", [])
-        feedback = reflection_data.get("feedback", "")
-        refined_sql = reflection_data.get("refined_sql", sql_v1)
-        explanation = reflection_data.get("explanation", "")
+    # ---------------------- Display Reflection ----------------------
+    st.subheader("Reflection Results")
 
-        # ---------------------- Display Reflection ----------------------
-        st.subheader("Reflection Results")
+    # Show refined SQL first
+    st.code(refined_sql, language="sql")
+    
+    # SQL comparison if changed
+    if sql_v1.strip() != refined_sql.strip() and refined_sql.strip().upper() != "NULL":
+        with st.expander("View SQL Changes"):
+            col_before, col_after = st.columns(2)
+            with col_before:
+                st.markdown("**Before:**")
+                st.code(sql_v1, language="sql")
+            with col_after:
+                st.markdown("**After:**")
+                st.code(refined_sql, language="sql")
+    
+    # Show explanation in a clean bubble
+    if explanation:
+        st.markdown(f"""
+        <div style='background-color:#f1f3f4;border-radius:8px;padding:12px 16px;border-left:4px solid #00C851;margin-top:16px;margin-bottom:24px;'>
+        <div style='font-weight:600;color:#333;margin-bottom:8px;'>🐣 QueryMind:</div>
+        <div style='color:#555;line-height:1.6;'>{explanation}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # Show detected anomalies
-        if issues and not (len(issues) == 1 and "No data-level anomalies" in issues[0]):
-            st.markdown("**Detected Data Anomalies:**")
-            for issue in issues:
-                st.markdown(f"- {issue}")
-
-        # Reflection feedback
-        if not explanation or "Detected" not in feedback:
-            st.markdown("**Reflection Feedback:**")
-            st.info(feedback)
-
-        # Show refined SQL
-        st.code(refined_sql, language="sql")
-
-        # Handle invalid or missing-field queries
-        if refined_sql.strip().upper() == "NULL":
-            if explanation:
-                st.markdown(f"""
-                <div style='background-color:#f1f3f4;border-radius:8px;padding:10px 14px;margin-top:10px;'>
-                <b>QueryMind:</b> {explanation}
-                </div>
-                """, unsafe_allow_html=True)
-            st.stop()
-        else:
-            try:
-                df_v2 = execute_sql(refined_sql)
-                st.success("Corrected Output (After Reflection)")
-                st.dataframe(df_v2, hide_index=True)
-            except Exception as e:
-                st.error(f"Execution Error after Reflection: {e}")
-
-        # ChatGPT-style explanation bubble (from LLM)
-        if explanation:
-            st.markdown(f"""
-            <div style='background-color:#f1f3f4;border-radius:8px;padding:10px 14px;margin-top:10px;'>
-            <b>QueryMind:</b> {explanation}
-            </div>
-            """, unsafe_allow_html=True)
-
-# ---------------------- CACHE STATS (DEV MODE) ----------------------
-with st.sidebar.expander("Cache Statistics"):
-    cache_stats = reflector.get_cache_stats()
-    st.write("**Reflection Engine Cache:**")
-    st.json(cache_stats)
-    if st.button("Clear All Caches", use_container_width=True, type="primary"):
-        reflector.clear_cache()
-        st.cache_data.clear()
-        st.success("All caches cleared!")
-        st.rerun()
+    # Handle invalid or missing-field queries
+    if refined_sql.strip().upper() == "NULL":
+        st.error("Query cannot be executed - missing required fields in schema")
+        st.stop()
+    else:
+        try:
+            df_v2 = execute_sql(refined_sql)
+            st.success("Corrected Output (After Reflection)")
+            st.dataframe(df_v2, hide_index=True)
+            
+            # Before/After Comparison if data changed
+            if not df_v1.equals(df_v2) and len(df_v1) > 0 and len(df_v2) > 0:
+                with st.expander("Before/After Comparison"):
+                    col_before, col_after = st.columns(2)
+                    with col_before:
+                        st.markdown("**Before Reflection:**")
+                        st.dataframe(df_v1, hide_index=True)
+                    with col_after:
+                        st.markdown("**After Reflection:**")
+                        st.dataframe(df_v2, hide_index=True)
+        except Exception as e:
+            st.error(f"Execution Error after Reflection: {str(e)}")
+            st.warning("The refined query could not be executed. This might indicate a data availability issue rather than a query problem.")
