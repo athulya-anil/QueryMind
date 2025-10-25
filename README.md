@@ -4,8 +4,7 @@
 
 **Live Demo:** https://querymind-ai.streamlit.app/
 
-An intelligent SQL agent that **writes, executes, and self-corrects** database queries in real-time. Built for data analysts, business users, and anyone who needs to query databases without writing SQL.
-
+An AI SQL assistant that's smart enough to check its own work and fix mistakes!
 ---
 
 ## What It Does
@@ -15,29 +14,30 @@ Unlike traditional SQL generators, QueryMind **reflects on its own output** and 
 
 1. **Converts natural language → SQL** using Groq's LLaMA 3.3 70B
 2. **Executes the query** against SQLite
-3. **Reflects on the output** to detect:
+3. **Reflects on the actual output data** to detect:
    - Negative totals from refunds → wraps in `ABS()`
+   - Empty results → checks if filtered values actually exist in the database
    - Missing schema fields → explains what's unavailable
-   - Empty results → flags WHERE/JOIN errors
+   - Date filters outside actual date range → flags with database statistics
    - Duplicate rows → identifies aggregation issues
    - Null-only columns → detects missing data
    - Incomplete coverage → warns about filtered regions
-   - Catches empty results → Flags JOIN/WHERE errors
-4. **Rewrites & re-executes** the corrected query
-5. **Explains the fix** in plain English
+4. **Rewrites & re-executes** the corrected query only when there's a real logic error
+5. **Explains the fix** in plain English, grounded in actual data
 
 ### 2. **Fast Performance** 
-- **3-layer caching system** reduces repeated API calls by 90%
+- **4-layer caching system** (reflection + semantic + explanation + column values)
 - **Sub-100ms response time** for cached queries
 - **10x faster** than traditional SQL generation tools
 - Smart cache invalidation with TTL-based expiration
 
 ### 3. **Production-Ready**
-- Multi-stage validation (rule-based + LLM semantic checks)
+- Multi-stage validation (rule-based + LLM semantic checks with actual data)
+- Data-aware reflection that validates against real database values and date ranges
+- Conservative correction logic that only suggests changes for real errors
 - Fallback logic for edge cases
 - Comprehensive error handling
 - Cache statistics dashboard for monitoring
-
 
 ---
 
@@ -57,13 +57,16 @@ Reflection Engine [CACHED]
   │   ├─ Duplicates
   │   ├─ Null columns
   │   └─ Coverage gaps
-  ├─ Semantic Validation (LLM)
+  ├─ Semantic Validation (LLM + Actual Data)
+  │   ├─ Analyzes v1 SQL output (first 3 rows)
+  │   ├─ Checks filtered values against database
+  │   ├─ Validates date ranges against actual min/max
   │   ├─ Intent matching
   │   └─ Schema field verification
   └─ Auto-Correction Logic
       ├─ ABS() wrapper for negatives
-      ├─ NULL response for invalid queries
-      └─ Natural language explanation
+      ├─ NULL response for unavailable data
+      └─ Data-grounded explanations
      ↓
 Execute Query v2 (corrected) [CACHED]
      ↓
@@ -90,7 +93,7 @@ ORDER BY total_revenue DESC LIMIT 1;
 ### After Reflection:
 
 **QueryMind detects the issue:**
-- Negative numeric values detected (possible refunds or sign errors)
+- Negative numeric values detected in actual output
 
 **Auto-corrected SQL:**
 ```sql
@@ -107,15 +110,38 @@ ORDER BY total_revenue DESC LIMIT 1;
 
 ---
 
-## Semantic Validation Example
+## Data Validation Example
 
-**You ask:** *"What is the best selling colour?"*
+**You ask:** *"What were sales in New York?"*
+
+**Generated SQL:**
+```sql
+SELECT * FROM transactions WHERE region = 'NY';
+```
+
+**QueryMind checks actual database:**
+- Query returns empty
+- Available regions: `['North', 'South', 'East', 'West']`
 
 **QueryMind Response:**
-> **There's no matching column for your question in the database schema.**  
-> Try rephrasing your question using available fields such as 'product_name', 'category', or 'region'.
+> **No region 'NY' exists in data. Available regions: North, South, East, West.**
 
-**Why this matters:** Prevents invalid queries and guides users toward valid columns.
+**Why this matters:** Prevents hallucinated SQL "fixes" when the real issue is data availability, not query syntax.
+
+---
+
+## Date Range Validation Example
+
+**You ask:** *"Show sales from 2023"*
+
+**QueryMind checks database:**
+- Query returns empty
+- Actual date range: `2025-09-01 to 2025-10-25`
+
+**QueryMind Response:**
+> **No data from 2023. Database only contains data from Sept-Oct 2025.**
+
+**Why this matters:** Stops hallucinated "date format fixes" by validating against actual min/max dates in the database.
 
 ---
 
@@ -154,33 +180,6 @@ GROQ_API_KEY = "your_key_here"
 
 ---
 
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Demo Dataset** | Pre-loaded Apple Store transactions (100+ rows) |
-| **Custom Upload** | Use your own CSV files |
-| **Auto-Correction** | Fixes negative sums, invalid fields, duplicate results |
-| **Semantic Check** | Detects queries referencing non-existent columns |
-| **Multi-Stage Validation** | Rule-based + LLM reasoning with fallback logic |
-| **Natural Explanations** | Plain-English reasoning for every correction |
-
----
-
-## File Structure
-
-```
-QueryMind/
-├── Demo.py                      # Apple Store demo
-├── pages/
-│   └── Use_Your_Own_Dataset.py  # CSV upload mode
-├── reflection_engine.py         # Core reflection logic
-├── requirements.txt
-└── README.md
-```
-
----
-
 ## Reflection Engine Deep Dive
 
 ### Stage 1: Data Anomaly Detection (Rule-Based)
@@ -195,40 +194,56 @@ def detect_output_anomalies(df: pd.DataFrame):
     - Coverage gaps → Missing regions (< 4 unique)
 ```
 
-### Stage 2: Semantic Validation (LLM)
+### Stage 2: Semantic Validation (LLM + Actual Data)
 
 ```python
 def semantic_reflection(question, sql_query, schema, sample_output):
-    # LLM analyzes:
+    # LLM analyzes actual SQL output (first 3 rows) to determine:
     - Does query match user intent?
     - Are referenced fields in schema?
+    - For empty results:
+      * Retrieves available values from filtered columns
+      * Validates date filters against actual min/max dates
+      * Returns NULL with data-grounded explanation if unavailable
     # Returns: {"feedback": "...", "refined_sql": "..."}
 ```
 
 **Fallback Logic:** If LLM fails, uses regex-based field detection for terms like:
 `color`, `rating`, `brand`, `model`, `size`, `version`
 
+**Anti-Hallucination Features:**
+- Lower temperature (0.3) for more accurate responses
+- Validates SQL changes are meaningful, not cosmetic rewrites
+- Includes actual output data in LLM prompt (as markdown)
+- Retrieves available column values for empty results
+- Fetches database date range statistics to validate time filters
+
 ### Stage 3: Auto-Correction
 
 **Negative totals:**
 ```python
-# Detects: SUM(revenue) with negative values
+# Detects: SUM(revenue) with negative values in actual output
 # Fixes:   SUM(ABS(revenue))
 fixed_sql = re.sub(r"SUM\(([^)]+)\)", r"SUM(ABS(\1))", sql_query)
 ```
 
 **Invalid queries:**
 ```python
-# Returns: "NULL" + helpful explanation
+# Returns: "NULL" + helpful explanation with actual data
 # Example: "Try using 'product_name', 'category', or 'region'"
+# Example: "Available regions: North, South, East, West"
+# Example: "Database contains data from Sept-Oct 2025 only"
 ```
 
 ### Stage 4: Natural Language Explanation
 
 ```python
-def generate_reflection_explanation(issues, feedback, old_sql, new_sql):
-    # LLM generates 2-3 sentence explanation
-    # Focuses on WHY the fix improves accuracy
+def generate_reflection_explanation(issues, feedback, old_sql, new_sql, sample_output):
+    # LLM generates 2-3 sentence explanation that:
+    - References actual output data
+    - Focuses on WHY the fix improves accuracy
+    - Cites real database values/dates for empty results
+    - Uses temperature=0.4 for accuracy
 ```
 
 ---
@@ -236,12 +251,13 @@ def generate_reflection_explanation(issues, feedback, old_sql, new_sql):
 ## How Reflection Works
 
 1. **Execute initial query** → Get results DataFrame
-2. **Scan for anomalies** → Rule-based checks
+2. **Scan for anomalies** → Rule-based checks on actual data
 3. **If negatives detected** → Auto-apply `ABS()` fix
-4. **If no anomalies** → Run LLM semantic validation
-5. **If invalid fields** → Return `NULL` + explanation
-6. **Generate explanation** → LLM summarizes the fix
-7. **Re-execute corrected query** → Show final results
+4. **If no anomalies** → Run LLM semantic validation with actual output data
+5. **For empty results** → Retrieve available values and date ranges from database
+6. **If invalid fields or missing data** → Return `NULL` + data-grounded explanation
+7. **Generate explanation** → LLM summarizes the fix using actual data references
+8. **Re-execute corrected query** → Show final results
 
 ---
 
