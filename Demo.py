@@ -135,10 +135,11 @@ with st.sidebar.expander("Try These Questions"):
     st.markdown("""
     ### Sample Questions to Test:
     
-    - Which product generated the highest total revenue?
-    - What's the total revenue by region?
-    - What's the best selling color?
-    - List the top 3 products by revenue.           
+    - Which product generated the highest total revenue? *(tests base SQL generation + aggregation correctness)*
+    - What's the total revenue by region? *(checks group-by logic + region coverage anomaly detection)*
+    - Which product was the best seller in October 2025? *(tests time-based filtering + date-range validation)*
+    - Which product was most popular in New York? *(tests anti-hallucination logic + empty-data reasoning)*
+    - List the top 3 products by revenue. *(verifies ranking, sorting, and reflection stability/caching)*
 
     """)
 # Cache Statistics

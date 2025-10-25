@@ -1,0 +1,11 @@
+TransactionID,Date,Customer,Product,Category,Quantity,UnitPrice,PaymentMethod,StoreLocation
+1001,2025-01-05,John Doe,Apples,Fruits,4,0.75,Cash,Boston
+1002,2025-01-05,Sarah Kim,Bread,Bakery,1,2.5,Card,Boston
+1003,2025-01-06,Michael Lee,Milk,Dairy,2,1.8,Card,Springfield
+1004,2025-01-06,Emma Davis,Chicken,Meat,1,7.25,Cash,Boston
+1005,2025-01-07,Daniel Brown,Orange Juice,Beverages,2,3.5,Card,Springfield
+1006,2025-01-07,Olivia White,Eggs,Dairy,1,2.99,Cash,Boston
+1007,2025-01-08,Liam Johnson,Banana,Fruits,6,0.6,Card,Amherst
+1008,2025-01-08,Ava Wilson,Apples,Fruits,3,0.75,Cash,Amherst
+1009,2025-01-09,Noah Miller,Bread,Bakery,2,2.5,Card,Boston
+1010,2025-01-09,Mia Taylor,Chicken,Meat,2,7.25,Card,Springfield

@@ -248,7 +248,7 @@ if user_question:
     
     # SQL comparison if changed
     if sql_v1.strip() != refined_sql.strip() and refined_sql.strip().upper() != "NULL":
-        with st.expander("🔄 View SQL Changes"):
+        with st.expander("View SQL Changes"):
             col_before, col_after = st.columns(2)
             with col_before:
                 st.markdown("**Before:**")
@@ -261,7 +261,7 @@ if user_question:
     if explanation:
         st.markdown(f"""
         <div style='background-color:#f1f3f4;border-radius:8px;padding:12px 16px;border-left:4px solid #00C851;margin-top:16px;margin-bottom:24px;'>
-        <div style='font-weight:600;color:#333;margin-bottom:8px;'>🐣 QueryMind Says:</div>
+        <div style='font-weight:600;color:#333;margin-bottom:8px;'>🐣 QueryMind:</div>
         <div style='color:#555;line-height:1.6;'>{explanation}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -278,7 +278,7 @@ if user_question:
 
             # Before/After Comparison if data changed
             if not df_v1.empty and not df_v2.empty and not df_v1.equals(df_v2):
-                with st.expander("📊 Before/After Comparison"):
+                with st.expander("Before/After Comparison"):
                     col_b, col_a = st.columns(2)
                     with col_b:
                         st.markdown("**Before Reflection:**")
