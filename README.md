@@ -4,8 +4,6 @@
 
 **Web App:** https://querymind-ai.streamlit.app/
 
-**Video Demo:** https://youtu.be/pjX5gr85adc?si=bju8oNf4UZvLuqSn
-
 An intelligent SQL agent that **writes, executes, and self-corrects** database queries in real-time. Built for data analysts, business users, and anyone who needs to query databases without writing SQL.
 
 ## What It Does
@@ -75,6 +73,8 @@ Plain English Explanation
 ```
 
 **All stages are intelligently cached for instant repeat queries!**
+
+**Video Demo:** https://youtu.be/pjX5gr85adc?si=bju8oNf4UZvLuqSn
 
 ---
 
