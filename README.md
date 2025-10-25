@@ -4,8 +4,7 @@
 
 **Live Demo:** https://querymind-ai.streamlit.app/
 
-An AI SQL assistant that's smart enough to check its own work and fix mistakes!
----
+An intelligent SQL agent that **writes, executes, and self-corrects** database queries in real-time. Built for data analysts, business users, and anyone who needs to query databases without writing SQL.
 
 ## What It Does
 
