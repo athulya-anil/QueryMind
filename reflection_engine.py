@@ -9,9 +9,6 @@ import sqlite3
 class ReflectionEngine:
     """
     ReflectionEngine: analyzes SQL output for anomalies and uses an LLM to propose corrections.
-    Now includes intelligent caching to reduce LLM calls and improve performance.
-    IMPROVED: Now includes actual output data AND available column values for data-aware reasoning.
-    ANTI-HALLUCINATION: Added data statistics, validation, and stricter prompts.
     """
 
     def __init__(self, client, model="llama-3.3-70b-versatile", db_path="apple_store.db", table_name="transactions"):
@@ -183,10 +180,6 @@ class ReflectionEngine:
 
     # ---------- 3 Semantic Reflection (LLM Reasoning) with External Feedback ----------
     def semantic_reflection(self, question, sql_query, schema, sample_output):
-        """
-        IMPROVED: Now includes actual SQL output data AND available column values for data-aware reflection.
-        ANTI-HALLUCINATION: Uses lower temperature, data statistics, and validation.
-        """
         # Convert sample_output to markdown for better LLM readability
         if isinstance(sample_output, list) and len(sample_output) > 0:
             df_sample = pd.DataFrame(sample_output)
